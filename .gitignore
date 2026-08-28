@@ -1,0 +1,21 @@
+# Build results
+[Bb]in/
+[Oo]bj/
+[Bb]uild/
+
+# User-specific files
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Visual Studio files
+.vs/
+*.sqlite3
+
+# Crash logs
+crash.log
+
+# Publish directories
+[Pp]ublish/
