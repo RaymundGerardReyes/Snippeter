@@ -15,58 +15,45 @@ namespace ClipboardManager.Data
             _connectionString = $"Data Source={dbPath}";
         }
 
-        public async Task AddAsync(ClipboardItem item, string safeSearchText)
-        {
-            await AddAsync(new ClipboardRecord
-            {
-                Item = item,
-                Projection = new SearchProjection
-                {
-                    SearchText = safeSearchText,
-                    ContainsSensitiveMaterial = item.IsSensitive
-                }
-            });
-        }
-
         public async Task AddAsync(ClipboardRecord record)
         {
             using var connection = new SqliteConnection(_connectionString);
             await connection.OpenAsync();
             using var transaction = connection.BeginTransaction();
-
             try
             {
                 var insertCmd = connection.CreateCommand();
                 insertCmd.Transaction = transaction;
                 insertCmd.CommandText = @"
                     INSERT INTO clipboard_items 
-                    (id, windows_id, created_at, content_type, is_sensitive, is_pinned, masked_preview, primary_category, storage_state, expires_at)
-                    VALUES ($id, $windows_id, $created_at, $content_type, $is_sensitive, $is_pinned, $masked_preview, $primary_category, $storage_state, $expires_at)
-                    RETURNING rowid;";
-                
+                    (id, windows_id, created_at, content_type, protection_state, safe_text, primary_category, expires_at, is_pinned)
+                    VALUES ($id, $windows_id, $created_at, $content_type, $protection_state, $safe_text, $primary_category, $expires_at, $is_pinned);";
+
                 insertCmd.Parameters.AddWithValue("$id", record.Item.Id);
-                insertCmd.Parameters.AddWithValue("$windows_id", record.Item.WindowsId);
+                insertCmd.Parameters.AddWithValue("$windows_id", (object?)record.Item.WindowsId ?? DBNull.Value);
                 insertCmd.Parameters.AddWithValue("$created_at", record.Item.CreatedAt.ToString("O"));
                 insertCmd.Parameters.AddWithValue("$content_type", record.Item.ContentType);
-                insertCmd.Parameters.AddWithValue("$is_sensitive", record.Item.IsSensitive ? 1 : 0);
-                insertCmd.Parameters.AddWithValue("$is_pinned", record.Item.IsPinned ? 1 : 0);
-                insertCmd.Parameters.AddWithValue("$masked_preview", record.Item.MaskedPreview);
+                insertCmd.Parameters.AddWithValue("$protection_state", record.Item.ProtectionState.ToString());
+                insertCmd.Parameters.AddWithValue("$safe_text", (object?)record.Item.SafeText ?? DBNull.Value);
                 insertCmd.Parameters.AddWithValue("$primary_category", record.Item.PrimaryCategory.ToString());
-                insertCmd.Parameters.AddWithValue("$storage_state", record.Item.StorageState.ToString());
                 insertCmd.Parameters.AddWithValue("$expires_at", record.Item.ExpiresAt.HasValue ? record.Item.ExpiresAt.Value.ToString("O") : DBNull.Value);
-                
-                var rowIdObj = await insertCmd.ExecuteScalarAsync();
-                long rowId = rowIdObj != null ? (long)rowIdObj : 0;
+                insertCmd.Parameters.AddWithValue("$is_pinned", record.Item.IsPinned ? 1 : 0);
 
-                var ftsCmd = connection.CreateCommand();
-                ftsCmd.Transaction = transaction;
-                ftsCmd.CommandText = @"
-                    INSERT INTO clipboard_fts (rowid, search_text) 
-                    VALUES ($rowid, $search_text)";
-                
-                ftsCmd.Parameters.AddWithValue("$rowid", rowId);
-                ftsCmd.Parameters.AddWithValue("$search_text", record.Projection.SearchText);
-                await ftsCmd.ExecuteNonQueryAsync();
+                await insertCmd.ExecuteNonQueryAsync();
+
+                // Core Security Invariant: Protected/Failed records NEVER enter the FTS index
+                if (record.Item.ProtectionState == ClipboardProtectionState.Normal && !string.IsNullOrWhiteSpace(record.Projection.SearchText))
+                {
+                    var ftsCmd = connection.CreateCommand();
+                    ftsCmd.Transaction = transaction;
+                    ftsCmd.CommandText = @"
+                        INSERT INTO clipboard_fts (item_id, search_text) 
+                        VALUES ($item_id, $search_text);";
+
+                    ftsCmd.Parameters.AddWithValue("$item_id", record.Item.Id);
+                    ftsCmd.Parameters.AddWithValue("$search_text", record.Projection.SearchText);
+                    await ftsCmd.ExecuteNonQueryAsync();
+                }
 
                 await transaction.CommitAsync();
             }
@@ -82,31 +69,19 @@ namespace ClipboardManager.Data
             using var connection = new SqliteConnection(_connectionString);
             await connection.OpenAsync();
             using var transaction = connection.BeginTransaction();
-
             try
             {
-                var getRowIdCmd = connection.CreateCommand();
-                getRowIdCmd.Transaction = transaction;
-                getRowIdCmd.CommandText = "SELECT rowid FROM clipboard_items WHERE id = $id";
-                getRowIdCmd.Parameters.AddWithValue("$id", id);
-                var rowIdObj = await getRowIdCmd.ExecuteScalarAsync();
-                
-                if (rowIdObj != null)
-                {
-                    long rowId = (long)rowIdObj;
+                var deleteFtsCmd = connection.CreateCommand();
+                deleteFtsCmd.Transaction = transaction;
+                deleteFtsCmd.CommandText = "DELETE FROM clipboard_fts WHERE item_id = $id;";
+                deleteFtsCmd.Parameters.AddWithValue("$id", id);
+                await deleteFtsCmd.ExecuteNonQueryAsync();
 
-                    var deleteFtsCmd = connection.CreateCommand();
-                    deleteFtsCmd.Transaction = transaction;
-                    deleteFtsCmd.CommandText = "DELETE FROM clipboard_fts WHERE rowid = $rowid";
-                    deleteFtsCmd.Parameters.AddWithValue("$rowid", rowId);
-                    await deleteFtsCmd.ExecuteNonQueryAsync();
-
-                    var deleteCoreCmd = connection.CreateCommand();
-                    deleteCoreCmd.Transaction = transaction;
-                    deleteCoreCmd.CommandText = "DELETE FROM clipboard_items WHERE rowid = $rowid";
-                    deleteCoreCmd.Parameters.AddWithValue("$rowid", rowId);
-                    await deleteCoreCmd.ExecuteNonQueryAsync();
-                }
+                var deleteCoreCmd = connection.CreateCommand();
+                deleteCoreCmd.Transaction = transaction;
+                deleteCoreCmd.CommandText = "DELETE FROM clipboard_items WHERE id = $id;";
+                deleteCoreCmd.Parameters.AddWithValue("$id", id);
+                await deleteCoreCmd.ExecuteNonQueryAsync();
 
                 await transaction.CommitAsync();
             }
@@ -120,14 +95,18 @@ namespace ClipboardManager.Data
         public async Task<List<ClipboardItem>> SearchAsync(ParsedSearchQuery query)
         {
             var list = new List<ClipboardItem>();
+            if (string.IsNullOrWhiteSpace(query.FtsSafeExpression))
+                return list;
+
             using var connection = new SqliteConnection(_connectionString);
             await connection.OpenAsync();
 
             var cmd = connection.CreateCommand();
             cmd.CommandText = @"
-                SELECT i.id, i.windows_id, i.created_at, i.content_type, i.is_sensitive, i.is_pinned, i.masked_preview, i.primary_category, i.storage_state, i.expires_at
+                SELECT i.id, i.windows_id, i.created_at, i.content_type, i.protection_state, 
+                       i.safe_text, i.primary_category, i.expires_at, i.is_pinned
                 FROM clipboard_items i
-                JOIN clipboard_fts f ON i.rowid = f.rowid
+                JOIN clipboard_fts f ON i.id = f.item_id
                 WHERE clipboard_fts MATCH $query;";
             cmd.Parameters.AddWithValue("$query", query.FtsSafeExpression);
 
@@ -146,7 +125,8 @@ namespace ClipboardManager.Data
 
             var cmd = connection.CreateCommand();
             cmd.CommandText = @"
-                SELECT id, windows_id, created_at, content_type, is_sensitive, is_pinned, masked_preview, primary_category, storage_state, expires_at
+                SELECT id, windows_id, created_at, content_type, protection_state, 
+                       safe_text, primary_category, expires_at, is_pinned
                 FROM clipboard_items
                 WHERE id = $id;";
             cmd.Parameters.AddWithValue("$id", id);
@@ -167,7 +147,8 @@ namespace ClipboardManager.Data
 
             var cmd = connection.CreateCommand();
             cmd.CommandText = @"
-                SELECT id, windows_id, created_at, content_type, is_sensitive, is_pinned, masked_preview, primary_category, storage_state, expires_at
+                SELECT id, windows_id, created_at, content_type, protection_state, 
+                       safe_text, primary_category, expires_at, is_pinned
                 FROM clipboard_items
                 ORDER BY is_pinned DESC, created_at DESC
                 LIMIT $limit OFFSET $offset;";
@@ -187,36 +168,19 @@ namespace ClipboardManager.Data
             using var connection = new SqliteConnection(_connectionString);
             await connection.OpenAsync();
             using var transaction = connection.BeginTransaction();
-
             try
             {
-                var getRowIdsCmd = connection.CreateCommand();
-                getRowIdsCmd.Transaction = transaction;
-                getRowIdsCmd.CommandText = "SELECT rowid FROM clipboard_items WHERE is_pinned = 0";
-                
-                var rowIds = new List<long>();
-                using (var reader = await getRowIdsCmd.ExecuteReaderAsync())
-                {
-                    while (await reader.ReadAsync())
-                    {
-                        rowIds.Add(reader.GetInt64(0));
-                    }
-                }
+                var deleteFtsCmd = connection.CreateCommand();
+                deleteFtsCmd.Transaction = transaction;
+                deleteFtsCmd.CommandText = @"
+                    DELETE FROM clipboard_fts 
+                    WHERE item_id IN (SELECT id FROM clipboard_items WHERE is_pinned = 0);";
+                await deleteFtsCmd.ExecuteNonQueryAsync();
 
-                foreach (var rowId in rowIds)
-                {
-                    var deleteFtsCmd = connection.CreateCommand();
-                    deleteFtsCmd.Transaction = transaction;
-                    deleteFtsCmd.CommandText = "DELETE FROM clipboard_fts WHERE rowid = $rowid";
-                    deleteFtsCmd.Parameters.AddWithValue("$rowid", rowId);
-                    await deleteFtsCmd.ExecuteNonQueryAsync();
-
-                    var deleteCoreCmd = connection.CreateCommand();
-                    deleteCoreCmd.Transaction = transaction;
-                    deleteCoreCmd.CommandText = "DELETE FROM clipboard_items WHERE rowid = $rowid";
-                    deleteCoreCmd.Parameters.AddWithValue("$rowid", rowId);
-                    await deleteCoreCmd.ExecuteNonQueryAsync();
-                }
+                var deleteCoreCmd = connection.CreateCommand();
+                deleteCoreCmd.Transaction = transaction;
+                deleteCoreCmd.CommandText = "DELETE FROM clipboard_items WHERE is_pinned = 0;";
+                await deleteCoreCmd.ExecuteNonQueryAsync();
 
                 await transaction.CommitAsync();
             }
@@ -232,37 +196,23 @@ namespace ClipboardManager.Data
             using var connection = new SqliteConnection(_connectionString);
             await connection.OpenAsync();
             using var transaction = connection.BeginTransaction();
-
             try
             {
-                var getRowIdsCmd = connection.CreateCommand();
-                getRowIdsCmd.Transaction = transaction;
-                getRowIdsCmd.CommandText = "SELECT rowid FROM clipboard_items WHERE expires_at IS NOT NULL AND expires_at <= $now";
-                getRowIdsCmd.Parameters.AddWithValue("$now", DateTimeOffset.Now.ToString("O"));
+                var now = DateTimeOffset.UtcNow.ToString("O");
 
-                var rowIds = new List<long>();
-                using (var reader = await getRowIdsCmd.ExecuteReaderAsync())
-                {
-                    while (await reader.ReadAsync())
-                    {
-                        rowIds.Add(reader.GetInt64(0));
-                    }
-                }
+                var deleteFtsCmd = connection.CreateCommand();
+                deleteFtsCmd.Transaction = transaction;
+                deleteFtsCmd.CommandText = @"
+                    DELETE FROM clipboard_fts 
+                    WHERE item_id IN (SELECT id FROM clipboard_items WHERE expires_at IS NOT NULL AND expires_at <= $now);";
+                deleteFtsCmd.Parameters.AddWithValue("$now", now);
+                await deleteFtsCmd.ExecuteNonQueryAsync();
 
-                foreach (var rowId in rowIds)
-                {
-                    var deleteFtsCmd = connection.CreateCommand();
-                    deleteFtsCmd.Transaction = transaction;
-                    deleteFtsCmd.CommandText = "DELETE FROM clipboard_fts WHERE rowid = $rowid";
-                    deleteFtsCmd.Parameters.AddWithValue("$rowid", rowId);
-                    await deleteFtsCmd.ExecuteNonQueryAsync();
-
-                    var deleteCoreCmd = connection.CreateCommand();
-                    deleteCoreCmd.Transaction = transaction;
-                    deleteCoreCmd.CommandText = "DELETE FROM clipboard_items WHERE rowid = $rowid";
-                    deleteCoreCmd.Parameters.AddWithValue("$rowid", rowId);
-                    await deleteCoreCmd.ExecuteNonQueryAsync();
-                }
+                var deleteCoreCmd = connection.CreateCommand();
+                deleteCoreCmd.Transaction = transaction;
+                deleteCoreCmd.CommandText = "DELETE FROM clipboard_items WHERE expires_at IS NOT NULL AND expires_at <= $now;";
+                deleteCoreCmd.Parameters.AddWithValue("$now", now);
+                await deleteCoreCmd.ExecuteNonQueryAsync();
 
                 await transaction.CommitAsync();
             }
@@ -273,23 +223,31 @@ namespace ClipboardManager.Data
             }
         }
 
-        private ClipboardItem MapFromReader(SqliteDataReader reader)
+        public async Task SetPinnedAsync(string id, bool isPinned)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            await connection.OpenAsync();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "UPDATE clipboard_items SET is_pinned = $is_pinned WHERE id = $id;";
+            cmd.Parameters.AddWithValue("$is_pinned", isPinned ? 1 : 0);
+            cmd.Parameters.AddWithValue("$id", id);
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        private static ClipboardItem MapFromReader(SqliteDataReader reader)
         {
             return new ClipboardItem
             {
                 Id = reader.GetString(0),
-                WindowsId = reader.GetString(1),
+                WindowsId = reader.IsDBNull(1) ? null : reader.GetString(1),
                 CreatedAt = DateTimeOffset.Parse(reader.GetString(2)),
                 ContentType = reader.GetString(3),
-                IsSensitive = reader.GetInt32(4) == 1,
-                IsPinned = reader.GetInt32(5) == 1,
-                MaskedPreview = reader.IsDBNull(6) ? string.Empty : reader.GetString(6),
-                PrimaryCategory = Enum.TryParse<PrivacyCategory>(reader.GetString(7), out var cat) ? cat : PrivacyCategory.Normal,
-                StorageState = Enum.TryParse<StorageState>(reader.GetString(8), out var st) ? st : StorageState.WindowsOnly,
-                ExpiresAt = reader.IsDBNull(9) ? null : DateTimeOffset.Parse(reader.GetString(9))
+                ProtectionState = Enum.TryParse<ClipboardProtectionState>(reader.GetString(4), out var st) ? st : ClipboardProtectionState.Normal,
+                SafeText = reader.IsDBNull(5) ? string.Empty : reader.GetString(5),
+                PrimaryCategory = Enum.TryParse<PrivacyCategory>(reader.GetString(6), out var cat) ? cat : PrivacyCategory.Normal,
+                ExpiresAt = reader.IsDBNull(7) ? null : DateTimeOffset.Parse(reader.GetString(7)),
+                IsPinned = reader.GetInt32(8) == 1
             };
         }
-        
-        public Task SetPinnedAsync(string id, bool isPinned) => throw new NotImplementedException();
     }
 }

@@ -5,16 +5,22 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using ClipboardManager.Helpers;
 using ClipboardManager.Models;
 using ClipboardManager.Services;
+using ClipboardManager.Data;
+using ClipboardManager.Search;
 
 namespace ClipboardManager.ViewModels
 {
     public class ClipboardViewModel : INotifyPropertyChanged
     {
-        private readonly ClipboardService _clipboardService;
+        private readonly IPasteCoordinator? _pasteCoordinator;
+        private readonly IClipboardRepository? _repository;
+        private readonly IPasteAction? _pasteAction;
+        private readonly SearchQueryParser _searchParser = new();
         private string _searchQuery = string.Empty;
-        private readonly Microsoft.UI.Dispatching.DispatcherQueue _uiThreadDispatcher;
+        private readonly Microsoft.UI.Dispatching.DispatcherQueue? _uiThreadDispatcher;
 
         public ObservableCollection<ClipboardItem> HistoryItems { get; set; } = new();
         
@@ -32,22 +38,71 @@ namespace ClipboardManager.ViewModels
             }
         }
 
-        public ClipboardViewModel()
+        public ClipboardViewModel(IPasteCoordinator pasteCoordinator, IClipboardRepository repository, IPasteAction pasteAction)
         {
-            _uiThreadDispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
-            _clipboardService = new ClipboardService();
-            _clipboardService.ClipboardUpdated += OnClipboardUpdated;
-            
+            _pasteCoordinator = pasteCoordinator;
+            _repository = repository;
+            _pasteAction = pasteAction;
+
+            try
+            {
+                _uiThreadDispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+            }
+            catch
+            {
+                _uiThreadDispatcher = null;
+            }
+
             DeleteCommand = new RelayCommand<ClipboardItem>(DeleteItem);
             PinCommand = new RelayCommand<ClipboardItem>(PinItem);
-
-            _clipboardService.StartMonitoring();
+            
             _ = RefreshHistoryAsync();
         }
 
-        private void OnClipboardUpdated(object? sender, EventArgs e)
+        public ClipboardViewModel(IPasteCoordinator pasteCoordinator, IClipboardRepository repository) 
+            : this(pasteCoordinator, repository, null!)
         {
-            // The clipboard event fires on a background thread! We must marshal to the UI thread.
+        }
+
+        public ClipboardViewModel(IPasteCoordinator pasteCoordinator) 
+            : this(pasteCoordinator, null!, null!)
+        {
+        }
+
+        public ClipboardViewModel()
+        {
+            try
+            {
+                _uiThreadDispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+            }
+            catch
+            {
+                _uiThreadDispatcher = null;
+            }
+
+            DeleteCommand = new RelayCommand<ClipboardItem>(DeleteItem);
+            PinCommand = new RelayCommand<ClipboardItem>(PinItem);
+        }
+
+        public async Task<PasteResult> PasteItemAsync(ClipboardItem item)
+        {
+            if (_pasteCoordinator == null)
+            {
+                return PasteResult.Success;
+            }
+
+            var result = await _pasteCoordinator.PasteAsync(item);
+            if (result == PasteResult.Success)
+            {
+                _pasteAction?.SimulatePaste();
+            }
+
+            return result;
+        }
+
+        // Call this from MainWindow or App when the monitor raises ClipboardUpdated
+        public void NotifyClipboardChanged()
+        {
             _uiThreadDispatcher?.TryEnqueue(async () => 
             {
                 await RefreshHistoryAsync();
@@ -56,55 +111,50 @@ namespace ClipboardManager.ViewModels
 
         public async Task RefreshHistoryAsync()
         {
-            var allItems = await _clipboardService.GetHistoryAsync();
             HistoryItems.Clear();
 
-            var filteredItems = string.IsNullOrWhiteSpace(SearchQuery) 
-                ? allItems 
-                : allItems.Where(i => i.TextPreview.Contains(SearchQuery, StringComparison.OrdinalIgnoreCase));
+            if (_repository == null) return;
 
-            foreach (var item in filteredItems.OrderByDescending(i => i.IsPinned).ThenByDescending(i => i.Timestamp))
+            var items = string.IsNullOrWhiteSpace(SearchQuery) 
+                ? await _repository.GetRecentAsync() 
+                : await _repository.SearchAsync(_searchParser.Parse(SearchQuery));
+
+            foreach (var item in items)
             {
                 HistoryItems.Add(item);
             }
         }
 
-        public void PasteItem(ClipboardItem item)
-        {
-            _clipboardService.SetActiveClipboardItem(item);
-        }
-
-        private void DeleteItem(ClipboardItem? item)
+        private async void DeleteItem(ClipboardItem? item)
         {
             if (item == null) return;
-            _clipboardService.DeleteHistoryItem(item);
+            if (_repository != null)
+            {
+                await _repository.DeleteAsync(item.Id);
+            }
             HistoryItems.Remove(item);
         }
 
-        private void PinItem(ClipboardItem? item)
+        private async void PinItem(ClipboardItem? item)
         {
             if (item == null) return;
             item.IsPinned = !item.IsPinned;
-            _ = RefreshHistoryAsync();
+            if (_repository != null)
+            {
+                await _repository.SetPinnedAsync(item.Id, item.IsPinned);
+            }
+            await RefreshHistoryAsync();
+        }
+
+        public void PasteItem(ClipboardItem item)
+        {
+            _ = PasteItemAsync(item);
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;
         protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-        }
-    }
-
-    public class RelayCommand<T> : ICommand
-    {
-        private readonly Action<T?> _execute;
-        public RelayCommand(Action<T?> execute) => _execute = execute;
-        public bool CanExecute(object? parameter) => true;
-        public void Execute(object? parameter) => _execute((T?)parameter);
-        public event EventHandler? CanExecuteChanged
-        {
-            add { }
-            remove { }
         }
     }
 }

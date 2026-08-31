@@ -1,0 +1,18 @@
+{
+  "semver": "1.0.0",
+  "name": "Secret & PII Token Classifier",
+  "description": "DistilBERT-base fine-tuned on Docker logs and public PII datasets for DirectML GPU inference",
+  "content_sha256": "95ef5bbbcad3c623910c0e5a87efbdad80aeef7b7fa093db5f8670bc2d1b7dfb",
+  "labels": [
+    "O",
+    "B-SECRET",
+    "I-SECRET",
+    "B-PII",
+    "I-PII",
+    "B-HOSTINFO",
+    "I-HOSTINFO",
+    "B-NETWORK",
+    "I-NETWORK"
+  ],
+  "max_seq_length": 128
+}

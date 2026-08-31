@@ -1,68 +1,131 @@
 using System;
 using System.Threading.Tasks;
-using Windows.ApplicationModel.DataTransfer;
 using ClipboardManager.Models;
 using ClipboardManager.Data;
 
 namespace ClipboardManager.Services
 {
-    public class ClipboardIngestor
+    public class ClipboardIngestor : IClipboardIngestor
     {
         private readonly IClipboardRepository _repository;
         private readonly IPrivacyClassifier _classifier;
-        private readonly ContentExtractionService _extractor;
+        private readonly IMaskingService _maskingService;
+        private readonly IClipboardWriter _clipboardWriter;
+        private readonly IReentrancyTracker _reentrancyTracker;
+        private readonly IPrivacyMaskingSettingsProvider? _settingsProvider;
 
         public ClipboardIngestor(
             IClipboardRepository repository, 
             IPrivacyClassifier classifier,
-            ContentExtractionService extractor)
+            IMaskingService maskingService,
+            IClipboardWriter clipboardWriter,
+            IReentrancyTracker reentrancyTracker,
+            IPrivacyMaskingSettingsProvider? settingsProvider = null)
         {
             _repository = repository;
             _classifier = classifier;
-            _extractor = extractor;
+            _maskingService = maskingService;
+            _clipboardWriter = clipboardWriter;
+            _reentrancyTracker = reentrancyTracker;
+            _settingsProvider = settingsProvider;
         }
 
-        public async Task ProcessNewItemAsync(ClipboardHistoryItem nativeItem)
+        public Task<IngestionOutcome> ProcessNewContentAsync(string rawText, string? windowsId)
         {
-            // 1. Content Extraction
-            string rawText = await _extractor.ExtractTextAsync(nativeItem);
-            if (string.IsNullOrWhiteSpace(rawText)) return;
+            return ProcessNewContentAsync(rawText, () => Task.FromResult(windowsId));
+        }
 
-            // 2. Classify
-            ClassificationResult classification = _classifier.Analyze(rawText);
+        public async Task<IngestionOutcome> ProcessNewContentAsync(string rawText, Func<Task<string?>>? historyIdFetcher = null)
+        {
+            if (string.IsNullOrWhiteSpace(rawText)) 
+                return new IngestionOutcome(IngestionResult.Ignored, null);
 
-            // 3. Mask
-            MaskingResult maskingResult = MaskingPolicy.GenerateSafePreview(rawText, classification);
+            var settings = _settingsProvider?.GetCurrent() ?? PrivacyMaskingSettings.Default;
+            var classification = _classifier.Analyze(rawText, settings);
+            var protectionState = ClipboardProtectionState.Normal;
+            string safeTextToStore = rawText;
+            DateTimeOffset? expiration = null;
 
-            // 4. Search Projection
-            var searchProjection = new SearchProjection
+            if (classification.IsSensitive)
             {
-                ContainsSensitiveMaterial = classification.IsSensitive,
-                SearchText = classification.IsSensitive ? string.Empty : rawText
-            };
+                var maskResult = _maskingService.Apply(rawText, classification);
 
-            // 5. Data Model
+                if (maskResult == null || !maskResult.Success || string.IsNullOrWhiteSpace(maskResult.SafeText))
+                    return new IngestionOutcome(IngestionResult.MaskingFailed, null);
+
+                string maskedText = maskResult.SafeText;
+
+                // Controller Option: Double-Layer Verification Pass
+                if (settings.EnableDoubleLayerMasking)
+                {
+                    var secondPassClassification = _classifier.Analyze(maskedText, settings);
+                    if (secondPassClassification.IsSensitive && secondPassClassification.MaskingPlan.Count > 0)
+                    {
+                        var secondMaskResult = _maskingService.Apply(maskedText, secondPassClassification);
+                        if (secondMaskResult != null && secondMaskResult.Success && !string.IsNullOrWhiteSpace(secondMaskResult.SafeText))
+                        {
+                            maskedText = secondMaskResult.SafeText;
+                        }
+                    }
+                }
+
+                _reentrancyTracker.RegisterProgrammaticWrite(maskedText);
+                var outcome = _clipboardWriter.WriteMaskedText(maskedText);
+                
+                if (outcome.Result == ClipboardWriteResult.Success)
+                {
+                    protectionState = ClipboardProtectionState.Protected;
+                    safeTextToStore = maskedText;
+                    expiration = DateTimeOffset.UtcNow.AddMinutes(15);
+                }
+                else
+                {
+                    _reentrancyTracker.CancelProgrammaticWrite(maskedText);
+                    protectionState = ClipboardProtectionState.ReplacementFailed;
+                    safeTextToStore = maskedText; 
+                }
+            }
+
+            // Lazy Evaluation: Evaluate historyIdFetcher ONLY if the classification is Normal
+            string? safeWindowsId = null;
+            if (protectionState == ClipboardProtectionState.Normal && historyIdFetcher != null)
+            {
+                safeWindowsId = await historyIdFetcher();
+            }
+
             var item = new ClipboardItem
             {
-                WindowsId = nativeItem.Id,
+                WindowsId = safeWindowsId,
                 ContentType = "Text",
-                IsSensitive = classification.IsSensitive,
-                MaskedPreview = maskingResult.MaskedText,
+                ProtectionState = protectionState,
+                SafeText = safeTextToStore,
                 PrimaryCategory = classification.IsSensitive && classification.Findings.Count > 0 
                     ? classification.Findings[0].Category 
                     : PrivacyCategory.Normal,
-                StorageState = classification.IsSensitive ? StorageState.Protected : StorageState.WindowsOnly,
-                ExpiresAt = classification.IsSensitive ? DateTimeOffset.Now.AddMinutes(15) : null
+                ExpiresAt = expiration
             };
 
             var record = new ClipboardRecord
             {
                 Item = item,
-                Projection = searchProjection
+                Projection = new SearchProjection 
+                { 
+                    SearchText = protectionState == ClipboardProtectionState.Normal ? rawText : string.Empty,
+                    ContainsSensitiveMaterial = classification.IsSensitive 
+                }
             };
 
-            // 6. Persist
-            await _repository.AddAsync(record);
+            try
+            {
+                await _repository.AddAsync(record);
+                return protectionState == ClipboardProtectionState.ReplacementFailed 
+                    ? new IngestionOutcome(IngestionResult.ReplacementFailed, item) 
+                    : new IngestionOutcome(IngestionResult.Success, item);
+            }
+            catch (Exception)
+            {
+                return new IngestionOutcome(IngestionResult.PersistenceFailed, null);
+            }
         }
     }
 }

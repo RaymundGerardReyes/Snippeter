@@ -1,49 +1,48 @@
 using System;
-using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using WinRT.Interop;
 using ClipboardManager.Models;
+using ClipboardManager.Services;
+using ClipboardManager.ViewModels;
 using ClipboardManager.Helpers;
 
 namespace ClipboardManager
 {
     public sealed partial class MainWindow : Window
     {
-        public ViewModels.ClipboardViewModel ViewModel { get; } = new ViewModels.ClipboardViewModel();
+        public ClipboardViewModel ViewModel { get; }
+        private readonly IGlobalHotkeyService _hotkeyService;
 
-        private readonly IntPtr _hwnd;
-        private readonly NativeMethods.SUBCLASSPROC _subclassDelegate;
-
-        public MainWindow()
+        public MainWindow(ClipboardViewModel viewModel, IGlobalHotkeyService hotkeyService)
         {
             this.InitializeComponent();
+            
+            ViewModel = viewModel;
             this.RootGrid.DataContext = ViewModel;
+            
+            _hotkeyService = hotkeyService;
+            _hotkeyService.HotkeyPressed += OnGlobalHotkeyPressed;
 
-            _hwnd = WindowNative.GetWindowHandle(this);
-            _subclassDelegate = new NativeMethods.SUBCLASSPROC(WindowSubClass);
-            NativeMethods.SetWindowSubclass(_hwnd, _subclassDelegate, (IntPtr)1, 0);
-            NativeMethods.RegisterHotKey(_hwnd, 9000, NativeMethods.MOD_CTRL | NativeMethods.MOD_SHIFT, NativeMethods.VK_V);
+            IntPtr hwnd = WindowNative.GetWindowHandle(this);
+            _hotkeyService.Register(hwnd);
         }
 
-        private IntPtr WindowSubClass(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam, IntPtr uIdSubclass, uint dwRefData)
+        public MainWindow() : this(new ClipboardViewModel(), new Win32GlobalHotkeyService())
         {
-            if (uMsg == NativeMethods.WM_HOTKEY && wParam.ToInt32() == 9000)
-            {
-                this.AppWindow.Show();
-                return IntPtr.Zero;
-            }
-            return NativeMethods.DefSubclassProc(hWnd, uMsg, wParam, lParam);
+        }
+
+        private void OnGlobalHotkeyPressed(object? sender, HotkeyPressedEventArgs e)
+        {
+            this.AppWindow.Show();
         }
 
         private async void OnClipboardItemClicked(object sender, ItemClickEventArgs e)
         {
             if (e.ClickedItem is ClipboardItem selectedItem)
             {
-                ViewModel.PasteItem(selectedItem);
                 this.AppWindow.Hide();
-                await Task.Delay(100);
-                NativeMethods.SimulatePaste();
+                await ViewModel.PasteItemAsync(selectedItem);
             }
         }
 
@@ -71,7 +70,7 @@ namespace ClipboardManager
 
         private void Window_Closed(object sender, WindowEventArgs args)
         {
-            NativeMethods.UnregisterHotKey(_hwnd, 9000);
+            _hotkeyService.Unregister();
         }
     }
 }
