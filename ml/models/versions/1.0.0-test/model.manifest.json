@@ -1,0 +1,41 @@
+{
+  "model_name": "secret_pii_detector",
+  "semver": "1.0.0",
+  "content_sha256": "67b84db22ef5e1becebc06e57dfc4f0391d4d5e94b29bb892bd7153a5c21f786",
+  "onnx_ir_version": 9,
+  "opset_version": 17,
+  "label_schema_version": 1,
+  "labels": [
+    "O",
+    "B-SECRET",
+    "I-SECRET",
+    "B-PII",
+    "I-PII",
+    "B-HOSTINFO",
+    "I-HOSTINFO",
+    "B-NETWORK",
+    "I-NETWORK"
+  ],
+  "tokenizer": {
+    "type": "wordpiece",
+    "vocab_file": "vocab.txt",
+    "max_sequence_length": 256
+  },
+  "dataset_snapshot": "dataset-2026.08.31-v3",
+  "training_config_hash": "sha256:dummy",
+  "git_commit": "a1b2c3d",
+  "exported_at_utc": "2026-08-31T10:00:00Z",
+  "evaluation": {
+    "span_f1_overall": 0.87,
+    "span_recall_overall": 0.90,
+    "span_precision_overall": 0.84,
+    "per_category": {
+      "SECRET": {
+        "precision": 0.9,
+        "recall": 0.95,
+        "f1": 0.92
+      }
+    }
+  },
+  "min_app_major_version": 1
+}

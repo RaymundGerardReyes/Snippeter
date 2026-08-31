@@ -97,27 +97,6 @@ namespace ClipboardManager.Services
 
             var findingsList = findingsBag.ToList();
 
-            // Layer 2.5: ML Secret Detector (Async / Sync bridge if loaded and enabled)
-            if (settings.EnableMlSecretDetection && _mlSecretDetector != null && _mlSecretDetector.IsModelLoaded)
-            {
-                try
-                {
-                    var mlTask = _mlSecretDetector.DetectAsync(rawText);
-                    var mlFindings = mlTask.GetAwaiter().GetResult();
-                    if (mlFindings != null && mlFindings.Count > 0)
-                    {
-                        foreach (var f in mlFindings.Where(mf => mf.Confidence >= settings.MlConfidenceThreshold))
-                        {
-                            findingsList.Add(f);
-                        }
-                    }
-                }
-                catch
-                {
-                    // Fallback to CPU Regex-only cleanly
-                }
-            }
-
             // Apply User Custom Allowlist Filter (e.g. AllowedDomains or AllowedPublicIps)
             var filteredFindings = ApplyAllowlistFilter(findingsList, rawText, settings);
 
@@ -127,6 +106,45 @@ namespace ClipboardManager.Services
                 .ToList();
 
             return EvaluatePolicyAndBuildPlan(rawText, normalizedFindings, settings);
+        }
+
+        public async Task<ClassificationResult> AnalyzeAsync(string input, PrivacyMaskingSettings? settings = null, System.Threading.CancellationToken cancellationToken = default)
+        {
+            settings ??= PrivacyMaskingSettings.Default;
+            
+            // Reuse existing sync pipeline exactly as-is for Layer 1
+            var layer1Result = Analyze(input, settings); 
+
+            if (!settings.EnableMlSecretDetection || _mlSecretDetector == null || !_mlSecretDetector.IsAvailable)
+            {
+                return layer1Result;
+            }
+
+            // Generate safe text using existing MaskingPolicy GenerateSafePreview
+            var previewResult = MaskingPolicy.GenerateSafePreview(input, layer1Result);
+            string maskedSoFar = previewResult.SafeText ?? input;
+
+            var mlBudget = TimeSpan.FromMilliseconds(1500);
+            
+            // Run ML Secret Detector
+            var mlFindings = await _mlSecretDetector.DetectAsync(maskedSoFar, mlBudget, cancellationToken).ConfigureAwait(false);
+
+            if (mlFindings == null || mlFindings.Count == 0)
+            {
+                return layer1Result;
+            }
+
+            // Accept findings above threshold
+            var accepted = mlFindings.Where(f => f.Confidence >= settings.MlConfidenceThreshold).ToList();
+            if (accepted.Count == 0)
+            {
+                return layer1Result;
+            }
+
+            // Combine and rebuild the masking plan
+            var combinedFindings = layer1Result.Findings.Concat(accepted).ToList();
+            
+            return EvaluatePolicyAndBuildPlan(input, combinedFindings, settings);
         }
 
         private List<PrivacyFinding> ApplyAllowlistFilter(List<PrivacyFinding> findings, string rawText, PrivacyMaskingSettings settings)

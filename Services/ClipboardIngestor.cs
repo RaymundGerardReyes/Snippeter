@@ -30,18 +30,35 @@ namespace ClipboardManager.Services
             _settingsProvider = settingsProvider;
         }
 
-        public Task<IngestionOutcome> ProcessNewContentAsync(string rawText, string? windowsId)
+        public Task<IngestionOutcome> ProcessNewContentAsync(string rawText, string? windowsId, System.Threading.CancellationToken cancellationToken = default)
         {
-            return ProcessNewContentAsync(rawText, () => Task.FromResult(windowsId));
+            return ProcessNewContentAsync(rawText, () => Task.FromResult(windowsId), cancellationToken);
         }
 
-        public async Task<IngestionOutcome> ProcessNewContentAsync(string rawText, Func<Task<string?>>? historyIdFetcher = null)
+        public async Task<IngestionOutcome> ProcessNewContentAsync(string rawText, Func<Task<string?>>? historyIdFetcher = null, System.Threading.CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(rawText)) 
                 return new IngestionOutcome(IngestionResult.Ignored, null);
 
             var settings = _settingsProvider?.GetCurrent() ?? PrivacyMaskingSettings.Default;
-            var classification = _classifier.Analyze(rawText, settings);
+            
+            // Phase 2.6 / 3.4 Fast-path threshold logic
+            int lineCount = 1;
+            for (int i = 0; i < rawText.Length; i++)
+            {
+                if (rawText[i] == '\n') lineCount++;
+                if (lineCount >= 1000) break;
+            }
+
+            ClassificationResult classification;
+            if (lineCount >= 1000)
+            {
+                classification = await _classifier.AnalyzeAsync(rawText, settings, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                classification = _classifier.Analyze(rawText, settings);
+            }
             var protectionState = ClipboardProtectionState.Normal;
             string safeTextToStore = rawText;
             DateTimeOffset? expiration = null;

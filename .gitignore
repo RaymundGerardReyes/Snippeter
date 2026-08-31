@@ -14,8 +14,29 @@
 .vs/
 *.sqlite3
 
-# Crash logs
+# Crash logs & Dev logs containing sensitive data
 crash.log
+*.log
+*.jsonl
+Secure_Dev_Logs.txt
+
+# Environment & Credential files
+.env
+*.pem
+*.key
+*.pfx
+
+# ML Raw Data & Credentials Security Protection
+ml/data/raw_docker_logs/
+ml/data/redacted_docker_logs/
+ml/data/corpus/
+ml/models/checkpoints/
+!ml/data/.gitkeep
+
+# Python cache & virtualenvs
+.venv/
+__pycache__/
+*.pyc
 
 # Publish directories
 [Pp]ublish/
