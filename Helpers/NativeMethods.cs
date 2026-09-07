@@ -22,9 +22,21 @@ namespace ClipboardManager.Helpers
         public static extern bool SetWindowSubclass(IntPtr hWnd, SUBCLASSPROC pfnSubclass, IntPtr uIdSubclass, uint dwRefData);
 
         [DllImport("comctl32.dll", SetLastError = true)]
+        public static extern bool RemoveWindowSubclass(IntPtr hWnd, SUBCLASSPROC pfnSubclass, IntPtr uIdSubclass);
+
+        [DllImport("comctl32.dll", SetLastError = true)]
         public static extern IntPtr DefSubclassProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam);
 
+        public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        public static extern bool EnumChildWindows(IntPtr hWndParent, EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        public static extern bool SetForegroundWindow(IntPtr hWnd);
+
         public const uint WM_HOTKEY = 0x0312;
+        public const uint WM_MOUSEWHEEL = 0x020A;
 
         [DllImport("user32.dll", SetLastError = true)]
         public static extern uint SendInput(uint nInputs, Input[] pInputs, int cbSize);

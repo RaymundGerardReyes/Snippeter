@@ -69,6 +69,11 @@ namespace ClipboardManager.Data
                     item_id UNINDEXED,
                     search_text,
                     tokenize='unicode61'
+                );
+
+                CREATE TABLE IF NOT EXISTS privacy_settings (
+                    key TEXT PRIMARY KEY,
+                    json_value TEXT NOT NULL
                 );";
             cmd.ExecuteNonQuery();
         }

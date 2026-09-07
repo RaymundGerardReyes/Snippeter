@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Windows.ApplicationModel.DataTransfer;
+using ClipboardManager.Models;
 
 namespace ClipboardManager.Services
 {
@@ -26,18 +27,40 @@ namespace ClipboardManager.Services
 
         private async void OnNativeContentChanged(object? sender, object e)
         {
-            string? textSnapshot = null;
+            var payload = new ClipboardPayload();
             var status = ClipboardSnapshotStatus.NoText;
 
             try
             {
                 var dataPackageView = Clipboard.GetContent();
+
+                if (dataPackageView.Contains(StandardDataFormats.Bitmap))
+                {
+                    payload.ImageStream = await dataPackageView.GetBitmapAsync();
+                    payload.ContentType = "Image";
+                    status = ClipboardSnapshotStatus.Success;
+                }
+                else if (dataPackageView.Contains(StandardDataFormats.Html))
+                {
+                    payload.Html = await dataPackageView.GetHtmlFormatAsync();
+                    payload.ContentType = "HTML";
+                    status = ClipboardSnapshotStatus.Success;
+                }
+                else if (dataPackageView.Contains(StandardDataFormats.Rtf))
+                {
+                    payload.Rtf = await dataPackageView.GetRtfAsync();
+                    payload.ContentType = "RTF";
+                    status = ClipboardSnapshotStatus.Success;
+                }
+
                 if (dataPackageView.Contains(StandardDataFormats.Text))
                 {
-                    textSnapshot = await dataPackageView.GetTextAsync();
-                    status = string.IsNullOrWhiteSpace(textSnapshot) 
-                        ? ClipboardSnapshotStatus.NoText 
-                        : ClipboardSnapshotStatus.Success;
+                    payload.Text = await dataPackageView.GetTextAsync();
+                    if (status == ClipboardSnapshotStatus.NoText) 
+                    {
+                        payload.ContentType = "Text";
+                        status = ClipboardSnapshotStatus.Success;
+                    }
                 }
             }
             catch
@@ -45,7 +68,7 @@ namespace ClipboardManager.Services
                 status = ClipboardSnapshotStatus.ReadFailed;
             }
 
-            ContentChanged?.Invoke(this, new ClipboardChangedEventArgs(textSnapshot, status));
+            ContentChanged?.Invoke(this, new ClipboardChangedEventArgs(payload, status));
         }
 
         private void OnNativeHistoryChanged(object? sender, ClipboardHistoryChangedEventArgs e)

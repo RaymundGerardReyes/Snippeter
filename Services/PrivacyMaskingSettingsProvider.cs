@@ -6,19 +6,39 @@ namespace ClipboardManager.Services
 {
     public class PrivacyMaskingSettingsProvider : IPrivacyMaskingSettingsProvider
     {
-        private readonly SettingsRepository _repository;
-        private PrivacyMaskingSettings _currentCache;
+        private readonly ISettingsRepository? _repository;
+        private PrivacyMaskingSettings _currentCache = PrivacyMaskingSettings.Default;
 
-        public PrivacyMaskingSettings Current => _currentCache ??= new PrivacyMaskingSettings();
-
-        public PrivacyMaskingSettingsProvider(SettingsRepository repository)
+        public PrivacyMaskingSettingsProvider(ISettingsRepository? repository = null)
         {
             _repository = repository;
+            if (_repository != null)
+            {
+                try
+                {
+                    _currentCache = _repository.GetSettingsAsync().GetAwaiter().GetResult() ?? PrivacyMaskingSettings.Default;
+                }
+                catch
+                {
+                    _currentCache = PrivacyMaskingSettings.Default;
+                }
+            }
         }
 
-        public async Task ReloadAsync()
+        public PrivacyMaskingSettingsProvider(PrivacyMaskingSettings initialSettings)
         {
-            _currentCache = await _repository.GetAsync();
+            _currentCache = initialSettings ?? PrivacyMaskingSettings.Default;
+        }
+
+        public PrivacyMaskingSettings GetCurrent() => _currentCache;
+
+        public void Update(PrivacyMaskingSettings settings)
+        {
+            _currentCache = settings ?? PrivacyMaskingSettings.Default;
+            if (_repository != null)
+            {
+                _ = _repository.SaveSettingsAsync(_currentCache);
+            }
         }
     }
 }

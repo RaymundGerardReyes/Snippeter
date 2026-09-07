@@ -17,6 +17,7 @@ namespace ClipboardManager.Services
 
     public interface IClipboardIngestor
     {
+        Task<IngestionOutcome> ProcessNewContentAsync(ClipboardPayload payload, Func<Task<string?>>? historyIdFetcher = null, System.Threading.CancellationToken cancellationToken = default);
         Task<IngestionOutcome> ProcessNewContentAsync(string rawText, Func<Task<string?>>? historyIdFetcher = null, System.Threading.CancellationToken cancellationToken = default);
         Task<IngestionOutcome> ProcessNewContentAsync(string rawText, string? windowsId, System.Threading.CancellationToken cancellationToken = default);
     }

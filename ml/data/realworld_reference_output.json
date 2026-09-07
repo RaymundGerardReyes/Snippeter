@@ -1,0 +1,122 @@
+[
+  {
+    "id": "case_1_mixed_prose_credentials",
+    "input": "Hey team, please use db_password=SuperSecretPass123! to connect to node.internal.net on port 5432.",
+    "spans": [
+      {
+        "category": "SECRET",
+        "start": 33,
+        "length": 19,
+        "text": "SuperSecretPass123!",
+        "avg_confidence": 0.9999242350459099
+      },
+      {
+        "category": "HOSTINFO",
+        "start": 67,
+        "length": 17,
+        "text": "node.internal.net",
+        "avg_confidence": 0.9999711513519287
+      },
+      {
+        "category": "NETWORK",
+        "start": 93,
+        "length": 4,
+        "text": "5432",
+        "avg_confidence": 0.9998999834060669
+      }
+    ]
+  },
+  {
+    "id": "case_2_mac_boundary",
+    "input": "The device MAC address MAC: e9:a9:1e:5d:ca:ef was registered by support@company.org yesterday.",
+    "spans": [
+      {
+        "category": "NETWORK",
+        "start": 23,
+        "length": 3,
+        "text": "MAC",
+        "avg_confidence": 0.9995819926261902
+      },
+      {
+        "category": "NETWORK",
+        "start": 26,
+        "length": 19,
+        "text": ": e9:a9:1e:5d:ca:ef",
+        "avg_confidence": 0.9912765341646531
+      },
+      {
+        "category": "PII",
+        "start": 64,
+        "length": 19,
+        "text": "support@company.org",
+        "avg_confidence": 0.999947452545166
+      }
+    ]
+  },
+  {
+    "id": "case_3_host_boundary",
+    "input": "DNS resolution failed for node.org [duration=3285ms id=qwkvghda]. Please verify 192.168.1.100.",
+    "spans": [
+      {
+        "category": "HOSTINFO",
+        "start": 26,
+        "length": 4,
+        "text": "node",
+        "avg_confidence": 0.5360037684440613
+      },
+      {
+        "category": "HOSTINFO",
+        "start": 80,
+        "length": 13,
+        "text": "192.168.1.100",
+        "avg_confidence": 0.999979053224836
+      }
+    ]
+  },
+  {
+    "id": "case_4_multiline_config",
+    "input": "host=api.staging.internal\napi_key=sk-proj-99887766554433221100\nip=10.0.4.15\nuser=admin@example.com",
+    "spans": [
+      {
+        "category": "HOSTINFO",
+        "start": 5,
+        "length": 20,
+        "text": "api.staging.internal",
+        "avg_confidence": 0.9999669551849365
+      },
+      {
+        "category": "SECRET",
+        "start": 34,
+        "length": 2,
+        "text": "sk",
+        "avg_confidence": 0.9863730669021606
+      },
+      {
+        "category": "SECRET",
+        "start": 41,
+        "length": 21,
+        "text": "-99887766554433221100",
+        "avg_confidence": 0.8174963410084064
+      },
+      {
+        "category": "HOSTINFO",
+        "start": 66,
+        "length": 9,
+        "text": "10.0.4.15",
+        "avg_confidence": 0.9974643673215594
+      },
+      {
+        "category": "PII",
+        "start": 81,
+        "length": 17,
+        "text": "admin@example.com",
+        "avg_confidence": 0.9996740420659384
+      }
+    ]
+  },
+  {
+    "id": "case_5_clean_text",
+    "input": "This is a regular clipboard copy text without any sensitive tokens or secrets.",
+    "spans": []
+  }
+]

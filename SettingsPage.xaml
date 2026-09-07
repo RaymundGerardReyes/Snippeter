@@ -1,4 +1,5 @@
 <Page
+    x:Name="mainPage"
     x:Class="ClipboardManager.SettingsPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -7,16 +8,29 @@
     mc:Ignorable="d"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
 
-    <ScrollViewer Padding="24" VerticalScrollBarVisibility="Auto">
-        <StackPanel Spacing="20" MaxWidth="800" HorizontalAlignment="Left">
+    <ScrollViewer x:Name="SettingsScrollViewer" Padding="16" VerticalScrollBarVisibility="Auto" VerticalScrollMode="Enabled" IsVerticalScrollChainingEnabled="True" HorizontalScrollBarVisibility="Disabled" HorizontalScrollMode="Disabled">
+        <StackPanel Spacing="20" MaxWidth="800" HorizontalAlignment="Stretch">
             
-            <TextBlock Text="Privacy Engine Controller Settings" FontSize="26" FontWeight="SemiBold" Foreground="{ThemeResource SystemControlHighlightAccentBrush}"/>
-            <TextBlock Text="Configure double-layer masking rules, structural redactions, domain allowlists, and GPU-accelerated ML secret detection." FontSize="14" Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"/>
+            <TextBlock Text="Privacy Engine Controller Settings" FontSize="22" FontWeight="SemiBold" TextWrapping="Wrap" Foreground="{ThemeResource SystemControlHighlightAccentBrush}"/>
+            <TextBlock Text="Configure double-layer masking rules, structural redactions, domain allowlists, and GPU-accelerated ML secret detection." FontSize="13" TextWrapping="Wrap" Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"/>
+
+            <!-- Master Switch -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="8" Padding="16" BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="Master Privacy Protection Switch" FontSize="18" FontWeight="SemiBold"/>
+                    <TextBlock Text="Enable or disable all privacy redaction and masking across the entire clipboard pipeline. When disabled, clipboard contents pass through 100% untouched." FontSize="13" TextWrapping="Wrap" Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"/>
+                    <ToggleSwitch Header="Enable Privacy Protection" IsOn="{Binding EnablePrivacyProtection, Mode=TwoWay}"/>
+                </StackPanel>
+            </Border>
 
             <!-- Layer 1: Core Masking Controls -->
             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="8" Padding="16" BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
                 <StackPanel Spacing="12">
                     <TextBlock Text="Layer 1: Structural Redaction Controls" FontSize="18" FontWeight="SemiBold"/>
+                    <ToggleSwitch Header="Mask Passwords &amp; Database Credentials" IsOn="{Binding MaskPasswords, Mode=TwoWay}"/>
+                    <ToggleSwitch Header="Mask API Keys, Secrets, JWTs &amp; Tokens" IsOn="{Binding MaskSecretsAndTokens, Mode=TwoWay}"/>
+                    <ToggleSwitch Header="Mask Email Addresses" IsOn="{Binding MaskEmails, Mode=TwoWay}"/>
+                    <ToggleSwitch Header="Mask Phone Numbers" IsOn="{Binding MaskPhones, Mode=TwoWay}"/>
                     <ToggleSwitch Header="Mask Private IP Addresses (10.x, 192.168.x, 172.16.x)" IsOn="{Binding MaskPrivateIp, Mode=TwoWay}"/>
                     <ToggleSwitch Header="Mask Public IP &amp; IPv6 Addresses" IsOn="{Binding MaskPublicIp, Mode=TwoWay}"/>
                     <ToggleSwitch Header="Mask Hostnames &amp; Domain Names" IsOn="{Binding MaskDomainNames, Mode=TwoWay}"/>
@@ -30,7 +44,7 @@
             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="8" Padding="16" BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
                 <StackPanel Spacing="12">
                     <TextBlock Text="Double-Layer Masking Verification Controller" FontSize="18" FontWeight="SemiBold"/>
-                    <TextBlock Text="When active, ClipboardManager executes a second verification pass on the masked text to guarantee zero residual leaks." FontSize="13" Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"/>
+                    <TextBlock Text="When active, ClipboardManager executes a second verification pass on the masked text to guarantee zero residual leaks." FontSize="13" TextWrapping="Wrap" Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"/>
                     <ToggleSwitch Header="Enable Double-Layer Verification Pass" IsOn="{Binding EnableDoubleLayerMasking, Mode=TwoWay}"/>
                 </StackPanel>
             </Border>
@@ -39,19 +53,19 @@
             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="8" Padding="16" BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
                 <StackPanel Spacing="12">
                     <TextBlock Text="Preserved Domain Allowlist" FontSize="18" FontWeight="SemiBold"/>
-                    <TextBlock Text="Specified domains will never be redacted even if present inside connection strings or URLs." FontSize="13" Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"/>
+                    <TextBlock Text="Specified domains will never be redacted even if present inside connection strings or URLs." FontSize="13" TextWrapping="Wrap" Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"/>
                     
                     <Grid ColumnDefinitions="*, Auto" ColumnSpacing="8">
                         <TextBox PlaceholderText="Enter domain (e.g. mycompany.com)" Text="{Binding NewAllowedDomain, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
                         <Button Content="Add Domain" Command="{Binding AddAllowedDomainCommand}" Grid.Column="1"/>
                     </Grid>
 
-                    <ListView ItemsSource="{Binding AllowedDomains}" MaxHeight="150">
+                    <ListView ItemsSource="{Binding AllowedDomains}" MaxHeight="150" ScrollViewer.VerticalScrollMode="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled">
                         <ListView.ItemTemplate>
                             <DataTemplate>
                                 <Grid ColumnDefinitions="*, Auto" Padding="4">
-                                    <TextBlock Text="{Binding}" VerticalAlignment="Center"/>
-                                    <Button Content="Remove" Command="{Binding DataContext.RemoveAllowedDomainCommand, RelativeSource={RelativeSource AncestorType=Page}}" CommandParameter="{Binding}" Grid.Column="1" Size="Small"/>
+                                     <TextBlock Text="{Binding}" VerticalAlignment="Center"/>
+                                     <Button Content="Remove" Command="{Binding DataContext.RemoveAllowedDomainCommand, ElementName=mainPage}" CommandParameter="{Binding}" Grid.Column="1"/>
                                 </Grid>
                             </DataTemplate>
                         </ListView.ItemTemplate>
@@ -63,19 +77,19 @@
             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="8" Padding="16" BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
                 <StackPanel Spacing="12">
                     <TextBlock Text="Custom Regex Pattern Blocklist" FontSize="18" FontWeight="SemiBold"/>
-                    <TextBlock Text="Specify additional custom regular expressions to always redact from copied text." FontSize="13" Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"/>
+                    <TextBlock Text="Specify additional custom regular expressions to always redact from copied text." FontSize="13" TextWrapping="Wrap" Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"/>
                     
                     <Grid ColumnDefinitions="*, Auto" ColumnSpacing="8">
                         <TextBox PlaceholderText="Enter Regex pattern (e.g. CONFIDENTIAL-[0-9]+)" Text="{Binding NewBlockedPattern, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
                         <Button Content="Add Pattern" Command="{Binding AddBlockedPatternCommand}" Grid.Column="1"/>
                     </Grid>
 
-                    <ListView ItemsSource="{Binding CustomBlockedPatterns}" MaxHeight="150">
+                    <ListView ItemsSource="{Binding CustomBlockedPatterns}" MaxHeight="150" ScrollViewer.VerticalScrollMode="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled">
                         <ListView.ItemTemplate>
                             <DataTemplate>
                                 <Grid ColumnDefinitions="*, Auto" Padding="4">
-                                    <TextBlock Text="{Binding}" VerticalAlignment="Center"/>
-                                    <Button Content="Remove" Command="{Binding DataContext.RemoveBlockedPatternCommand, RelativeSource={RelativeSource AncestorType=Page}}" CommandParameter="{Binding}" Grid.Column="1" Size="Small"/>
+                                     <TextBlock Text="{Binding}" VerticalAlignment="Center"/>
+                                     <Button Content="Remove" Command="{Binding DataContext.RemoveBlockedPatternCommand, ElementName=mainPage}" CommandParameter="{Binding}" Grid.Column="1"/>
                                 </Grid>
                             </DataTemplate>
                         </ListView.ItemTemplate>

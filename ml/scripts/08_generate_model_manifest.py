@@ -29,19 +29,29 @@ def sha256_of_file(path: Path) -> str:
 def git_commit_short() -> str:
     try:
         return subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"], text=True
+            ["git", "rev-parse", "--short", "HEAD"],
+            text=True,
+            stderr=subprocess.DEVNULL,  # suppress "not a git repository" noise
         ).strip()
     except Exception:
-        return "unknown"
+        return None  # explicitly null — not fabricated
 
 def load_eval_metrics(eval_json_path: Path) -> dict:
+    # FAIL CLOSED: do not allow placeholder/hardcoded metrics in the manifest.
+    # If evaluation.json is absent, the manifest MUST NOT be generated.
     if not eval_json_path.exists():
-        return {
-            "span_f1_overall": 0.95,
-            "span_recall_overall": 0.96,
-            "span_precision_overall": 0.94
-        }
-    return json.loads(eval_json_path.read_text(encoding="utf-8"))
+        sys.exit(
+            f"REJECTED: evaluation.json not found at {eval_json_path}.\n"
+            f"Run Stage 06 (06_evaluate.py) to produce real metrics before generating a manifest."
+        )
+    data = json.loads(eval_json_path.read_text(encoding="utf-8"))
+    # Verify it contains real fields — not placeholder defaults
+    if data.get("span_recall_overall") is None or data.get("span_f1_overall") is None:
+        sys.exit(
+            "REJECTED: evaluation.json is missing required metric keys.\n"
+            "Ensure Stage 06 completed successfully before running Stage 08."
+        )
+    return data
 
 def validate_recall_gate(eval_metrics: dict, min_recall: float = 0.85) -> None:
     recall = eval_metrics.get("span_recall_overall")

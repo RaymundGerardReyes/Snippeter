@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using ClipboardManager.Models;
 
 namespace ClipboardManager.Services
 {
@@ -12,12 +13,12 @@ namespace ClipboardManager.Services
 
     public sealed class ClipboardChangedEventArgs : EventArgs
     {
-        public string? Text { get; }
+        public ClipboardPayload Payload { get; }
         public ClipboardSnapshotStatus Status { get; }
 
-        public ClipboardChangedEventArgs(string? text, ClipboardSnapshotStatus status)
+        public ClipboardChangedEventArgs(ClipboardPayload payload, ClipboardSnapshotStatus status)
         {
-            Text = text;
+            Payload = payload;
             Status = status;
         }
     }

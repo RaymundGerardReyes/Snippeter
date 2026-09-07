@@ -1,8 +1,10 @@
 {
+  "model_name": "secret_pii_detector",
   "semver": "1.0.0",
-  "name": "Secret & PII Token Classifier",
-  "description": "DistilBERT-base fine-tuned on Docker logs and public PII datasets for DirectML GPU inference",
-  "content_sha256": "95ef5bbbcad3c623910c0e5a87efbdad80aeef7b7fa093db5f8670bc2d1b7dfb",
+  "content_sha256": "ce1d51df7f5e08abf1e182af56987e65103d51266c2e76801837acadbfa90a0b",
+  "onnx_ir_version": 8,
+  "opset_version": 17,
+  "label_schema_version": 1,
   "labels": [
     "O",
     "B-SECRET",
@@ -14,5 +16,41 @@
     "B-NETWORK",
     "I-NETWORK"
   ],
-  "max_seq_length": 128
+  "tokenizer": {
+    "type": "wordpiece",
+    "vocab_file": "vocab.txt",
+    "max_sequence_length": 256
+  },
+  "dataset_snapshot": "synthetic-v1.0.0",
+  "training_config_hash": "local-run",
+  "git_commit": "601d8b1",
+  "exported_at_utc": "2026-09-04T16:25:58.869028+00:00",
+  "evaluation": {
+    "span_f1_overall": 0.9625,
+    "span_recall_overall": 0.9896619167365186,
+    "span_precision_overall": 0.9367892092039143,
+    "per_category": {
+      "SECRET": {
+        "precision": 0.9021237303785781,
+        "recall": 0.9848790322580645,
+        "f1": 0.9416867469879519
+      },
+      "PII": {
+        "precision": 0.9758595464520848,
+        "recall": 1.0,
+        "f1": 0.987782302850796
+      },
+      "HOSTINFO": {
+        "precision": 0.9917550058892816,
+        "recall": 0.976231884057971,
+        "f1": 0.9839322231960269
+      },
+      "NETWORK": {
+        "precision": 0.9048037492677211,
+        "recall": 0.9942066301898937,
+        "f1": 0.9474007054132803
+      }
+    }
+  },
+  "min_app_major_version": 1
 }

@@ -32,78 +32,85 @@ namespace ClipboardManager.Services
 
         public Task<IngestionOutcome> ProcessNewContentAsync(string rawText, string? windowsId, System.Threading.CancellationToken cancellationToken = default)
         {
-            return ProcessNewContentAsync(rawText, () => Task.FromResult(windowsId), cancellationToken);
+            var payload = new ClipboardPayload { Text = rawText, ContentType = "Text" };
+            return ProcessNewContentAsync(payload, () => Task.FromResult(windowsId), cancellationToken);
         }
 
-        public async Task<IngestionOutcome> ProcessNewContentAsync(string rawText, Func<Task<string?>>? historyIdFetcher = null, System.Threading.CancellationToken cancellationToken = default)
+        public Task<IngestionOutcome> ProcessNewContentAsync(string rawText, Func<Task<string?>>? historyIdFetcher = null, System.Threading.CancellationToken cancellationToken = default)
         {
-            if (string.IsNullOrWhiteSpace(rawText)) 
+            var payload = new ClipboardPayload { Text = rawText, ContentType = "Text" };
+            return ProcessNewContentAsync(payload, historyIdFetcher, cancellationToken);
+        }
+
+        public async Task<IngestionOutcome> ProcessNewContentAsync(ClipboardPayload payload, Func<Task<string?>>? historyIdFetcher = null, System.Threading.CancellationToken cancellationToken = default)
+        {
+            if (payload.ContentType == "Unknown" && string.IsNullOrWhiteSpace(payload.Text))
+                return new IngestionOutcome(IngestionResult.Ignored, null);
+
+            if (payload.ContentType == "Text" && string.IsNullOrWhiteSpace(payload.Text))
                 return new IngestionOutcome(IngestionResult.Ignored, null);
 
             var settings = _settingsProvider?.GetCurrent() ?? PrivacyMaskingSettings.Default;
+            ClassificationResult classification = new ClassificationResult { IsSensitive = false };
             
-            // Phase 2.6 / 3.4 Fast-path threshold logic
-            int lineCount = 1;
-            for (int i = 0; i < rawText.Length; i++)
-            {
-                if (rawText[i] == '\n') lineCount++;
-                if (lineCount >= 1000) break;
-            }
-
-            ClassificationResult classification;
-            if (lineCount >= 1000)
-            {
-                classification = await _classifier.AnalyzeAsync(rawText, settings, cancellationToken).ConfigureAwait(false);
-            }
-            else
-            {
-                classification = _classifier.Analyze(rawText, settings);
-            }
+            string safeTextToStore = payload.Text ?? string.Empty;
             var protectionState = ClipboardProtectionState.Normal;
-            string safeTextToStore = rawText;
             DateTimeOffset? expiration = null;
 
-            if (classification.IsSensitive)
+            if (settings.EnablePrivacyProtection && !string.IsNullOrWhiteSpace(payload.Text))
             {
-                var maskResult = _maskingService.Apply(rawText, classification);
-
-                if (maskResult == null || !maskResult.Success || string.IsNullOrWhiteSpace(maskResult.SafeText))
-                    return new IngestionOutcome(IngestionResult.MaskingFailed, null);
-
-                string maskedText = maskResult.SafeText;
-
-                // Controller Option: Double-Layer Verification Pass
-                if (settings.EnableDoubleLayerMasking)
+                int lineCount = 1;
+                for (int i = 0; i < payload.Text.Length; i++)
                 {
-                    var secondPassClassification = _classifier.Analyze(maskedText, settings);
-                    if (secondPassClassification.IsSensitive && secondPassClassification.MaskingPlan.Count > 0)
+                    if (payload.Text[i] == '\n') lineCount++;
+                    if (lineCount >= 1000) break;
+                }
+
+                classification = lineCount >= 1000 
+                    ? await _classifier.AnalyzeAsync(payload.Text, settings, cancellationToken).ConfigureAwait(false) 
+                    : _classifier.Analyze(payload.Text, settings);
+
+                if (classification.IsSensitive)
+                {
+                    var maskResult = _maskingService.Apply(payload.Text, classification);
+                    if (maskResult == null || !maskResult.Success || string.IsNullOrWhiteSpace(maskResult.SafeText))
+                        return new IngestionOutcome(IngestionResult.MaskingFailed, null);
+
+                    string maskedText = maskResult.SafeText;
+
+                    if (settings.EnableDoubleLayerMasking)
                     {
-                        var secondMaskResult = _maskingService.Apply(maskedText, secondPassClassification);
-                        if (secondMaskResult != null && secondMaskResult.Success && !string.IsNullOrWhiteSpace(secondMaskResult.SafeText))
+                        var secondPass = _classifier.Analyze(maskedText, settings);
+                        if (secondPass != null && secondPass.IsSensitive && secondPass.MaskingPlan != null && secondPass.MaskingPlan.Count > 0)
                         {
-                            maskedText = secondMaskResult.SafeText;
+                            var secondMask = _maskingService.Apply(maskedText, secondPass);
+                            if (secondMask != null && secondMask.Success && !string.IsNullOrWhiteSpace(secondMask.SafeText))
+                            {
+                                maskedText = secondMask.SafeText;
+                            }
                         }
                     }
-                }
 
-                _reentrancyTracker.RegisterProgrammaticWrite(maskedText);
-                var outcome = _clipboardWriter.WriteMaskedText(maskedText);
-                
-                if (outcome.Result == ClipboardWriteResult.Success)
-                {
-                    protectionState = ClipboardProtectionState.Protected;
-                    safeTextToStore = maskedText;
-                    expiration = DateTimeOffset.UtcNow.AddMinutes(15);
-                }
-                else
-                {
-                    _reentrancyTracker.CancelProgrammaticWrite(maskedText);
-                    protectionState = ClipboardProtectionState.ReplacementFailed;
-                    safeTextToStore = maskedText; 
+                    _reentrancyTracker.RegisterProgrammaticWrite(maskedText);
+                    var outcome = _clipboardWriter.WriteMaskedText(maskedText);
+
+                    if (outcome.Result == ClipboardWriteResult.Success)
+                    {
+                        protectionState = ClipboardProtectionState.Protected;
+                        safeTextToStore = maskedText;
+                        expiration = DateTimeOffset.UtcNow.AddMinutes(15);
+                        payload.Rtf = null; 
+                        payload.Html = null;
+                    }
+                    else
+                    {
+                        _reentrancyTracker.CancelProgrammaticWrite(maskedText);
+                        protectionState = ClipboardProtectionState.ReplacementFailed;
+                        safeTextToStore = maskedText; 
+                    }
                 }
             }
 
-            // Lazy Evaluation: Evaluate historyIdFetcher ONLY if the classification is Normal
             string? safeWindowsId = null;
             if (protectionState == ClipboardProtectionState.Normal && historyIdFetcher != null)
             {
@@ -113,12 +120,11 @@ namespace ClipboardManager.Services
             var item = new ClipboardItem
             {
                 WindowsId = safeWindowsId,
-                ContentType = "Text",
+                ContentType = payload.ContentType,
                 ProtectionState = protectionState,
                 SafeText = safeTextToStore,
                 PrimaryCategory = classification.IsSensitive && classification.Findings.Count > 0 
-                    ? classification.Findings[0].Category 
-                    : PrivacyCategory.Normal,
+                    ? classification.Findings[0].Category : PrivacyCategory.Normal,
                 ExpiresAt = expiration
             };
 
@@ -127,7 +133,7 @@ namespace ClipboardManager.Services
                 Item = item,
                 Projection = new SearchProjection 
                 { 
-                    SearchText = protectionState == ClipboardProtectionState.Normal ? rawText : string.Empty,
+                    SearchText = protectionState == ClipboardProtectionState.Normal ? safeTextToStore : string.Empty,
                     ContainsSensitiveMaterial = classification.IsSensitive 
                 }
             };

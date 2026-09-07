@@ -26,6 +26,7 @@ namespace ClipboardManager.ViewModels
         
         public ICommand DeleteCommand { get; }
         public ICommand PinCommand { get; }
+        public ICommand ClearUnpinnedCommand { get; }
 
         public string SearchQuery
         {
@@ -55,6 +56,7 @@ namespace ClipboardManager.ViewModels
 
             DeleteCommand = new RelayCommand<ClipboardItem>(DeleteItem);
             PinCommand = new RelayCommand<ClipboardItem>(PinItem);
+            ClearUnpinnedCommand = new RelayCommand<object>(_ => ClearUnpinnedItems());
             
             _ = RefreshHistoryAsync();
         }
@@ -82,6 +84,7 @@ namespace ClipboardManager.ViewModels
 
             DeleteCommand = new RelayCommand<ClipboardItem>(DeleteItem);
             PinCommand = new RelayCommand<ClipboardItem>(PinItem);
+            ClearUnpinnedCommand = new RelayCommand<object>(_ => ClearUnpinnedItems());
         }
 
         public async Task<PasteResult> PasteItemAsync(ClipboardItem item)
@@ -144,6 +147,15 @@ namespace ClipboardManager.ViewModels
                 await _repository.SetPinnedAsync(item.Id, item.IsPinned);
             }
             await RefreshHistoryAsync();
+        }
+
+        private async void ClearUnpinnedItems()
+        {
+            if (_repository != null)
+            {
+                await _repository.ClearUnpinnedAsync();
+                await RefreshHistoryAsync();
+            }
         }
 
         public void PasteItem(ClipboardItem item)

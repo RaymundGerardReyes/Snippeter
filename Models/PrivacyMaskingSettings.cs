@@ -7,16 +7,20 @@ namespace ClipboardManager.Models
     {
         public static PrivacyMaskingSettings Default { get; } = new PrivacyMaskingSettings();
 
+        // Master Privacy Protection Engine Controller
+        public bool EnablePrivacyProtection { get; set; } = true;
+
         // Layer 1 — Core Privacy Controls (Enabled by default)
+        public bool MaskPasswords { get; set; } = true;
+        public bool MaskSecretsAndTokens { get; set; } = true;
+        public bool MaskEmails { get; set; } = true;
+        public bool MaskPhones { get; set; } = true;
         public bool MaskPrivateIp { get; set; } = true;
         public bool MaskPublicIp { get; set; } = true;
         public bool MaskDomainNames { get; set; } = true;
         public bool MaskPortNumbers { get; set; } = true;
         public bool MaskDatabaseNames { get; set; } = true;
         public bool MaskHashIds { get; set; } = true;
-        public bool MaskEmails { get; set; } = true;
-        public bool MaskPhones { get; set; } = true;
-        public bool MaskPasswords { get; set; } = true;
 
         // Layer 2 — User Custom Allowlist & Blocklist
         public List<string> AllowedDomains { get; set; } = new();   // e.g. "mycompany.com" — never mask if matched

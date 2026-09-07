@@ -118,14 +118,22 @@ namespace ClipboardManager.Services.Ml
         {
             // Map ML schema string to the strongly-typed PrivacyCategory enum
             // The model produces categories like "SECRET", "PII", "HOSTINFO", "NETWORK"
-            PrivacyCategory category = PrivacyCategory.Unknown;
+            PrivacyCategory category = PrivacyCategory.SecretLike;
             
-            if (mlCategory == "SECRET") category = PrivacyCategory.Password; // Map general secret to Password for now
+            if (mlCategory == "SECRET") category = PrivacyCategory.PasswordLike;
             else if (mlCategory == "PII") category = PrivacyCategory.Email;
-            else if (mlCategory == "HOSTINFO") category = PrivacyCategory.Domain;
+            else if (mlCategory == "HOSTINFO") category = PrivacyCategory.Hostname;
             else if (mlCategory == "NETWORK") category = PrivacyCategory.PublicIp;
 
-            return new PrivacyFinding(category, index, length, FindingSource.MachineLearning);
+            return new PrivacyFinding
+            {
+                Category = category,
+                StartIndex = index,
+                Length = length,
+                Confidence = 0.95f,
+                Severity = Severity.High,
+                Source = FindingSource.MachineLearning
+            };
         }
     }
 }

@@ -74,13 +74,13 @@ namespace ClipboardManager.Services
 
         private async Task ProcessContentChangedAsync(ClipboardChangedEventArgs e)
         {
-            if (e.Status != ClipboardSnapshotStatus.Success || string.IsNullOrWhiteSpace(e.Text) || _tracker.ConsumeExpectedWrite(e.Text))
+            if (e.Status != ClipboardSnapshotStatus.Success || (e.Payload.Text != null && _tracker.ConsumeExpectedWrite(e.Payload.Text)))
                 return;
 
-            var outcome = await _ingestor.ProcessNewContentAsync(e.Text, async () => 
+            var outcome = await _ingestor.ProcessNewContentAsync(e.Payload, async () => 
             {
                 var match = await _clipboardSystem.TryGetLatestHistoryIdAsync();
-                return match != null && string.Equals(match.Text, e.Text, StringComparison.Ordinal) ? match.Id : null;
+                return match != null && string.Equals(match.Text, e.Payload.Text, StringComparison.Ordinal) ? match.Id : null;
             });
 
             switch (outcome.Result)

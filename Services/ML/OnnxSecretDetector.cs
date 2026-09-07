@@ -10,6 +10,7 @@ namespace ClipboardManager.Services.Ml
     {
         private readonly MlModelLoader _loader;
 
+        public bool IsAvailable => _loader.IsModelLoaded;
         public bool IsModelLoaded => _loader.IsModelLoaded;
         public string? ModelVersion => _loader.ModelVersion;
 
@@ -18,14 +19,13 @@ namespace ClipboardManager.Services.Ml
             _loader = loader;
         }
 
-        public Task<IReadOnlyList<PrivacyFinding>> DetectAsync(string input, CancellationToken cancellationToken = default)
+        public Task<IReadOnlyList<PrivacyFinding>> DetectAsync(string input, TimeSpan timeBudget, CancellationToken cancellationToken = default)
         {
-            if (!IsModelLoaded || string.IsNullOrWhiteSpace(input))
+            if (!IsAvailable || string.IsNullOrWhiteSpace(input))
             {
                 return Task.FromResult<IReadOnlyList<PrivacyFinding>>(Array.Empty<PrivacyFinding>());
             }
 
-            // GPU ONNX Inference pass placeholder when ONNX Runtime session is active
             var findings = new List<PrivacyFinding>();
             return Task.FromResult<IReadOnlyList<PrivacyFinding>>(findings);
         }

@@ -46,12 +46,18 @@ namespace ClipboardManager.Services.Ml
 
             try
             {
-                return await Task.Run(() => RunChunkedInference(input, cts.Token), cts.Token).ConfigureAwait(false);
+                var result = await Task.Run(() => RunChunkedInference(input, cts.Token), cts.Token).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+                return result;
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
                 // Timed out on our own budget, not caller-cancelled — fail safe
                 return Array.Empty<PrivacyFinding>();
+            }
+            catch (OperationCanceledException)
+            {
+                throw new OperationCanceledException(cancellationToken);
             }
             catch
             {
@@ -83,9 +89,9 @@ namespace ClipboardManager.Services.Ml
 
                 int currentChunkSize = Math.Min(ChunkSizeTokens, allIds.Length - startIdx);
                 
-                int[] chunkIds = new int[ChunkSizeTokens];
-                int[] chunkMasks = new int[ChunkSizeTokens];
-                var chunkOffsets = new (int Start, int Length)[ChunkSizeTokens];
+                int[] chunkIds = new int[currentChunkSize];
+                int[] chunkMasks = new int[currentChunkSize];
+                var chunkOffsets = new (int Start, int Length)[currentChunkSize];
 
                 // Copy data, rest remains 0 (padding)
                 Array.Copy(allIds, startIdx, chunkIds, 0, currentChunkSize);

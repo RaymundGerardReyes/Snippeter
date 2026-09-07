@@ -18,6 +18,7 @@ namespace ClipboardManager.Services.Ml
         public bool IsModelLoaded { get; private set; }
         public ModelLoadStatus Status { get; private set; } = ModelLoadStatus.NotAttempted;
         public ModelManifest? Manifest { get; private set; }
+        public string? ModelVersion => Manifest?.Semver;
 
         public MlModelLoader(string modelsBasePath)
         {
