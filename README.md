@@ -78,72 +78,118 @@ For ambiguous high-entropy strings and credentials in mixed prose:
 - **Performance**: Evaluated at **96.25% Span F1** and **98.97% Recall** on synthetic and real-world challenge sets.
 - **Hardware Acceleration**: Powered by `Microsoft.ML.OnnxRuntime.DirectML` for GPU acceleration across any DirectX 12 hardware, with automatic fallback to CPU.
 
-#### Machine Learning Model & Inference Graph Pipeline
+#### 1. Machine Learning Learning Curve (Validation Loss Across Epochs)
+
+The following line graph depicts the fine-tuning convergence of the token classification model across 6 training epochs (14,022 global optimization steps). Checkpoint 9,348 at **Epoch 4** achieved the global minimum validation loss of **0.038957**:
 
 ```mermaid
-flowchart TD
-    subgraph Input_Stage ["1. Ingestion & Sliding Window Partitioning"]
-        RawText["Raw Clipboard Text\n(e.g., 'connect to db_password=SuperSecret123! on node.internal:5432')"]
-        Chunker["Sliding Window Chunker\nWindow: 256 tokens | Overlap: 48 tokens"]
-        RawText --> Chunker
+xychart-beta
+    title "Model Learning Curve — Validation Loss Across Training Epochs"
+    x-axis ["Epoch 1", "Epoch 2", "Epoch 3", "Epoch 4 (Best: 0.0389)", "Epoch 5", "Epoch 6"]
+    y-axis "Validation Loss (Cross-Entropy)" 0.00 --> 0.07
+    line [0.0560, 0.0451, 0.0561, 0.0389, 0.0508, 0.0436]
+```
+
+#### 2. Neural Network Computational Graph Architecture (Node Graph)
+
+The fine-tuned model evaluates input sequences via a 6-layer bidirectional transformer encoder with 12 multi-head self-attention mechanisms, projecting contextual hidden representations into 9-class BIO token logits:
+
+```mermaid
+graph LR
+    subgraph Inputs ["1. Input Tokens"]
+        T1["x₁: Token_1"]
+        T2["x₂: Token_2"]
+        T3["x₃: Token_3"]
+        TD["..."]
+        TN["x₂₅₆: Token_256"]
     end
 
-    subgraph Tokenization_Stage ["2. WordPiece Tokenization & Tensor Assembly"]
-        Tokenizer["BertTokenizerService\nWordPiece Vocabulary (vocab.txt)"]
-        InputIds["input_ids Tensor\nint64[batch_size, 256]"]
-        AttnMask["attention_mask Tensor\nint64[batch_size, 256]"]
-        Offsets["Token Character Offsets\nArray of (CharStart, CharLength)"]
-        
-        Chunker --> Tokenizer
-        Tokenizer --> InputIds
-        Tokenizer --> AttnMask
-        Tokenizer --> Offsets
+    subgraph Embeddings ["2. Embedding Space (d=768)"]
+        WPE["WordPiece Embeddings\n(30,522 × 768)"]
+        POS["Position Embeddings\n(256 × 768)"]
+        EMB_SUM["Vector Addition +\nLayerNorm + Dropout"]
+        T1 & T2 & T3 & TD & TN --> WPE & POS
+        WPE & POS --> EMB_SUM
     end
 
-    subgraph Runtime_EP ["3. Hardware Execution Provider Routing"]
-        EPCheck{DirectX 12 GPU\nAvailable?}
-        DML["DirectML Execution Provider\nHardware GPU Acceleration (D3D12)"]
-        CPU["CPU Execution Provider\nNative x64 / ARM64 Fallback"]
-        
-        InputIds & AttnMask --> EPCheck
-        EPCheck -->|Yes| DML
-        EPCheck -->|No / Error| CPU
+    subgraph Transformer_Stack ["3. Transformer Encoder Layers (×6 Layers)"]
+        direction TB
+        MHA["Multi-Head Self-Attention\n(12 Heads, d_k=64)\nQ·Kᵀ / √d_k → Softmax · V"]
+        RES1["Residual Add & LayerNorm\nLN(x + MHA(x))"]
+        FFN["Feed-Forward Dense Network\nLinear(768→3072) → GELU → Linear(3072→768)"]
+        RES2["Residual Add & LayerNorm\nLN(x + FFN(x))"]
+        MHA --> RES1 --> FFN --> RES2
     end
 
-    subgraph ONNX_Graph ["4. ONNX Computational Graph (Opset 17, IR 8)"]
-        Emb["Embedding Layer\n(Word Token + Position + Segment Embeddings)"]
-        Encoders["BERT Transformer Encoder Stack\n(12 Blocks with Multi-Head Self-Attention & GELU)"]
-        HiddenStates["Hidden States Representation\nfloat32[batch_size, 256, 768]"]
-        ClassifierHead["Token Classification Head\nDropout + Dense Linear(768 -> 9)"]
-        Logits["Logits Tensor Output\nfloat32[batch_size, 256, 9]"]
-        
-        DML & CPU --> Emb
-        Emb --> Encoders
-        Encoders --> HiddenStates
-        HiddenStates --> ClassifierHead
-        ClassifierHead --> Logits
+    EMB_SUM --> Transformer_Stack
+
+    subgraph Hidden_Layer ["4. Hidden States"]
+        H["Contextual Hidden States\nH ∈ ℝ²⁵⁶ ˣ ⁷⁶⁸"]
     end
 
-    subgraph Decoding_Stage ["5. BIO Span Decoding & Probabilistic Filtering"]
-        Softmax["Softmax Normalization\nP(c) = exp(z_c) / Σ exp(z_k)"]
-        Argmax["Argmax & BIO Label Resolver\nO, B-SECRET, I-SECRET, B-PII, I-PII,\nB-HOSTINFO, I-HOSTINFO, B-NETWORK, I-NETWORK"]
-        BioDecoder["BioSpanDecoder\nToken Merging & Offset Reconstruction"]
-        Dedupe["Window Overlap Resolver\nDeduplicates Spans (Prefers Highest Confidence)"]
-        Threshold{"Confidence Gate\nScore >= MlConfidenceThreshold (0.75)"}
-        
-        Logits --> Softmax
-        Softmax --> Argmax
-        Argmax & Offsets --> BioDecoder
-        BioDecoder --> Dedupe
-        Dedupe --> Threshold
+    Transformer_Stack --> H
+
+    subgraph Classification_Head ["5. Dense Classifier & Logits"]
+        DROP["Dropout (p=0.1)"]
+        DENSE["Linear Projection Head\nW ∈ ℝ⁷⁶⁸ ˣ ⁹ + b ∈ ℝ⁹"]
+        LOGITS["Logits Output Tensor\nz ∈ ℝ²⁵⁶ ˣ ⁹"]
+        SOFTMAX["Softmax Activation Layer\nP(yᵢ=c) = exp(z_c) / Σ exp(z_k)"]
+        H --> DROP --> DENSE --> LOGITS --> SOFTMAX
     end
 
-    subgraph Output_Stage ["6. Extracted Privacy Findings"]
-        Findings["PrivacyFinding Entity List:\n• Category: SECRET, PII, HOSTINFO, NETWORK\n• Exact Character Boundaries: StartIndex, Length\n• Confidence Score (e.g. 0.9998)\n• Severity: Critical / High / Medium"]
-        Threshold -->|Pass| Findings
-        Threshold -->|Fail| Discard[Discard Sub-threshold Candidate]
+    subgraph Output_Classes ["6. 9-Class BIO Predictions"]
+        O["O (Background)"]
+        BS["B-SECRET"]
+        IS["I-SECRET"]
+        BP["B-PII"]
+        IP["I-PII"]
+        BH["B-HOSTINFO"]
+        IH["I-HOSTINFO"]
+        BN["B-NETWORK"]
+        IN["I-NETWORK"]
+        SOFTMAX --> O & BS & IS & BP & IP & BH & IH & BN & IN
     end
 ```
+
+#### 3. Category Classification Performance & Precision-Recall Matrix
+
+```mermaid
+xychart-beta
+    title "Entity Classification Evaluation Metrics (%)"
+    x-axis ["SECRET", "PII", "HOSTINFO", "NETWORK", "OVERALL"]
+    y-axis "Score (%)" 85 --> 100
+    bar [94.17, 98.78, 98.39, 94.74, 96.25]
+    line [98.49, 100.0, 97.62, 99.42, 98.97]
+```
+
+##### Precision-Recall Cluster Distribution & Decision Space
+
+```
+Precision (%)
+  100% ┤                                                  [HOSTINFO] (97.6%, 99.2%)
+       │                                                                ▲
+   98% ┤                                                                │       ★ [PII] (100.0%, 97.6%)
+       │                                                                │
+   96% ┤                                                                │       ◆ [OVERALL] (99.0%, 93.7%)
+       │                                                                │
+   94% ┤                                                                │
+       │                                                                │
+   92% ┤                                                                │
+       │                                                                │
+   90% ┤                  ● [SECRET] (98.5%, 90.2%)                     │       ■ [NETWORK] (99.4%, 90.5%)
+       │                                                                │
+       └───────────┬────────────────────────────┬───────────────────────┴─────────────────────────┬────────►
+                 97.0%                        98.0%                                             99.0%    100.0%
+                                                           Recall (%)
+```
+
+| Entity Cluster | Precision | Recall | Span F1 | Confidence Gate ($\tau$) | Target Signatures & Scope |
+| :--- | :---: | :---: | :---: | :---: | :--- |
+| **SECRET** | 90.21% | 98.49% | **94.17%** | $\ge 0.75$ | High-entropy tokens, mixed credentials, API keys, passwords |
+| **PII** | 97.59% | 100.00% | **98.78%** | $\ge 0.75$ | Email addresses, phone numbers, user identification GUIDs |
+| **HOSTINFO** | 99.18% | 97.62% | **98.39%** | $\ge 0.75$ | Internal hostnames, FQDNs, private clusters, node identifiers |
+| **NETWORK** | 90.48% | 99.42% | **94.74%** | $\ge 0.75$ | Private CIDRs, IPv4/IPv6 endpoints, MAC addresses |
+| **OVERALL** | **93.68%** | **98.97%** | **96.25%** | $\ge 0.75$ | **Comprehensive Multi-Entity Evaluation (6,844 spans)** |
 
 ---
 
