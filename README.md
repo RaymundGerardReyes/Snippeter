@@ -1,6 +1,6 @@
 # Snippeter (ClipboardManager)
 
-[![Version](https://img.shields.io/badge/version-1.2.1-blue.svg)](https://github.com/RaymundGerardReyes/Snippeter/releases/tag/v1.2.1)
+[![Version](https://img.shields.io/badge/version-1.2.2-blue.svg)](https://github.com/RaymundGerardReyes/Snippeter/releases/tag/v1.2.2)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%20Windows%2011-0078D6.svg)](https://www.microsoft.com/windows)
 [![Framework](https://img.shields.io/badge/.NET-8.0%20WinUI%203-512BD4.svg)](https://dotnet.microsoft.com/)
 [![Windows App SDK](https://img.shields.io/badge/Windows%20App%20SDK-1.5-0078D4.svg)](https://learn.microsoft.com/windows/apps/windows-app-sdk/)
@@ -416,6 +416,7 @@ python -c "import sqlite3, os; conn = sqlite3.connect(os.path.expandvars(r'%LOCA
 - [x] **v1.1.0**: DirectML ONNX secret detection integration, BERT tokenizer, BIO span decoding.
 - [x] **v1.2.0**: Settings view integration, Master Privacy Switch, zero-masking guarantee, 0ms instant mouse wheel scrolling.
 - [x] **v1.2.1**: Self-healing SQLite schema (`privacy_settings`), thread-safe logging, and multi-path ML discovery hierarchy.
+- [x] **v1.2.2**: Machine Learning graph model visual architecture, learning curve (epoch validation loss), and entity cluster scatter matrix.
 - [ ] **v1.3.0 (Planned)**:
   - Multi-format clipboard support (images, screenshots, and rich formatting).
   - Database encryption at rest via SQLCipher (AES-256).
