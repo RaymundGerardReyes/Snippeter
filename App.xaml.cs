@@ -13,6 +13,7 @@ namespace ClipboardManager
     {
         private Window? m_window;
         private readonly string _logPath;
+        private static readonly object _logLock = new();
         private ExpirationCleanupService? _cleanupService;
         private ClipboardMonitor? _clipboardMonitor;
 
@@ -30,20 +31,35 @@ namespace ClipboardManager
                 e.Handled = true;
             };
 
-            File.AppendAllText(_logPath, $"\n\n[{DateTime.Now}] Application Starting...");
+            Log("\n\nApplication Starting...");
             this.InitializeComponent();
+        }
+
+        private void Log(string message)
+        {
+            try
+            {
+                lock (_logLock)
+                {
+                    File.AppendAllText(_logPath, $"\n[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {message}");
+                }
+            }
+            catch { }
         }
 
         private void LogCrash(string source, Exception? ex)
         {
             try
             {
-                string log = $"\n[{DateTime.Now}] CRASH ({source}): {ex?.Message}\n{ex?.StackTrace}\n";
-                if (ex?.InnerException != null)
+                lock (_logLock)
                 {
-                    log += $"Inner: {ex.InnerException.Message}\n{ex.InnerException.StackTrace}\n";
+                    string log = $"\n[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] CRASH ({source}): {ex?.Message}\n{ex?.StackTrace}\n";
+                    if (ex?.InnerException != null)
+                    {
+                        log += $"Inner: {ex.InnerException.Message}\n{ex.InnerException.StackTrace}\n";
+                    }
+                    File.AppendAllText(_logPath, log);
                 }
-                File.AppendAllText(_logPath, log);
             }
             catch { }
         }
@@ -52,26 +68,41 @@ namespace ClipboardManager
         {
             try
             {
-                File.AppendAllText(_logPath, $"\n[{DateTime.Now}] OnLaunched entered. args={args}");
+                Log($"OnLaunched entered. args={args}");
 
-                File.AppendAllText(_logPath, $"\n[{DateTime.Now}] 1. Initialize SQLite Database...");
+                Log("1. Initialize SQLite Database...");
 
                 // 1. Initialize SQLite Database
                 string dbPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ClipboardManager", "clipboard_history.db");
                 new DatabaseInitializer(dbPath).Initialize();
                 var repository = new ClipboardRepository(dbPath);
 
-                File.AppendAllText(_logPath, $"\n[{DateTime.Now}] 2. Start Background Expiration Sweeper...");
+                Log("2. Start Background Expiration Sweeper...");
                 // 2. Start Background Expiration Sweeper (Step 10)
                 _cleanupService = new ExpirationCleanupService(repository);
                 _cleanupService.Start(TimeSpan.FromMinutes(1)); // Sweeps every 1 minute
 
-                File.AppendAllText(_logPath, $"\n[{DateTime.Now}] 3. Initialize Secure Pipeline Services...");
+                Log("3. Initialize Secure Pipeline Services...");
                 // 3. Initialize Secure Pipeline Services
-                var mlModelsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ClipboardManager", "Models", "ml");
+                string localAppDataMl = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ClipboardManager", "Models", "ml");
+                string baseDirMl = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Models", "ml");
+                string mlModelsPath = Directory.Exists(localAppDataMl) ? localAppDataMl : (Directory.Exists(baseDirMl) ? baseDirMl : localAppDataMl);
+
+                Log($"ML models path: '{mlModelsPath}' (Exists: {Directory.Exists(mlModelsPath)})");
                 var mlModelLoader = new ClipboardManager.Services.Ml.MlModelLoader(mlModelsPath);
 
-                _ = Task.Run(async () => await mlModelLoader.LoadAsync(System.Threading.CancellationToken.None));
+                _ = Task.Run(async () => 
+                {
+                    try
+                    {
+                        await mlModelLoader.LoadAsync(System.Threading.CancellationToken.None);
+                        Log($"ML Model Loader finished. Status: {mlModelLoader.Status}, Loaded: {mlModelLoader.IsModelLoaded}");
+                    }
+                    catch (Exception ex)
+                    {
+                        LogCrash("MlModelLoader", ex);
+                    }
+                });
 
                 string versionDir = Path.Combine(mlModelsPath, "versions", "1.0.0");
                 string vocabPath = Path.Combine(versionDir, "vocab.txt");
@@ -109,13 +140,13 @@ namespace ClipboardManager
                 var viewModel = new ClipboardViewModel(pasteCoordinator, repository, pasteAction);
                 _clipboardMonitor.ClipboardUpdated += (s, e) => viewModel.NotifyClipboardChanged();
 
-                File.AppendAllText(_logPath, $"\n[{DateTime.Now}] Starting Clipboard Monitor...");
+                Log("Starting Clipboard Monitor...");
                 _clipboardMonitor.StartMonitoring();
 
-                File.AppendAllText(_logPath, $"\n[{DateTime.Now}] Initializing hotkey service...");
+                Log("Initializing hotkey service...");
                 var hotkeyService = new Win32GlobalHotkeyService();
 
-                File.AppendAllText(_logPath, $"\n[{DateTime.Now}] Creating MainWindow...");
+                Log("Creating MainWindow...");
                 m_window = new MainWindow(viewModel, settingsViewModel, hotkeyService);
                 
                 // 5. Safely teardown background services on close
@@ -125,16 +156,15 @@ namespace ClipboardManager
                     _cleanupService.Dispose();
                 };
 
-                File.AppendAllText(_logPath, $"\n[{DateTime.Now}] Showing AppWindow...");
+                Log("Showing AppWindow...");
                 m_window.AppWindow.Show();
-                File.AppendAllText(_logPath, $"\n[{DateTime.Now}] Calling Activate...");
+                Log("Calling Activate...");
                 m_window.Activate();
-                File.AppendAllText(_logPath, $"\n[{DateTime.Now}] MainWindow activated successfully. Startup completed.");
+                Log("MainWindow activated successfully. Startup completed.");
             }
             catch (Exception ex)
             {
-                File.AppendAllText(_logPath, $"\n[{DateTime.Now}] STARTUP FAILURE in OnLaunched: {ex}");
-                LogCrash("OnLaunched", ex);
+                LogCrash("OnLaunched.StartupFailure", ex);
                 throw;
             }
         }

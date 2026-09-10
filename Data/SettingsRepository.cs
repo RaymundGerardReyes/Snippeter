@@ -28,7 +28,12 @@ namespace ClipboardManager.Data
             await connection.OpenAsync();
 
             using var command = connection.CreateCommand();
-            command.CommandText = "SELECT json_value FROM privacy_settings WHERE key = @key;";
+            command.CommandText = @"
+                CREATE TABLE IF NOT EXISTS privacy_settings (
+                    key TEXT PRIMARY KEY,
+                    json_value TEXT NOT NULL
+                );
+                SELECT json_value FROM privacy_settings WHERE key = @key;";
             command.Parameters.AddWithValue("@key", SettingsKey);
 
             var result = await command.ExecuteScalarAsync();
@@ -57,6 +62,10 @@ namespace ClipboardManager.Data
 
             using var command = connection.CreateCommand();
             command.CommandText = @"
+                CREATE TABLE IF NOT EXISTS privacy_settings (
+                    key TEXT PRIMARY KEY,
+                    json_value TEXT NOT NULL
+                );
                 INSERT INTO privacy_settings (key, json_value) 
                 VALUES (@key, @json)
                 ON CONFLICT(key) DO UPDATE SET json_value = @json;";

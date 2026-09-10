@@ -17,7 +17,7 @@
     <ProjectPriFileName>resources.pri</ProjectPriFileName>
     <Nullable>enable</Nullable>
     <!-- Versioning -->
-    <Version>1.2.0</Version>
+    <Version>1.2.1</Version>
     <!-- Fixes the NETSDK1206 Warning -->
     <UseRidGraph>true</UseRidGraph>
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>

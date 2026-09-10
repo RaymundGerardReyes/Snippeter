@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using Microsoft.UI.Xaml;
 using Microsoft.Windows.ApplicationModel.DynamicDependency;
 
@@ -9,22 +10,38 @@ namespace ClipboardManager
         [STAThread]
         static void Main(string[] args)
         {
-            WinRT.ComWrappersSupport.InitializeComWrappers();
+            string logDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ClipboardManager");
+            Directory.CreateDirectory(logDir);
+            string logPath = Path.Combine(logDir, "crash.log");
 
             try
             {
-                // Initialize Bootstrap for unpackaged WinUI 3 app
-                Bootstrap.Initialize(0x00010005);
-            }
-            catch { }
+                File.AppendAllText(logPath, $"\n[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] Program.Main entered.");
+                WinRT.ComWrappersSupport.InitializeComWrappers();
 
-            Application.Start((p) =>
+                try
+                {
+                    // Initialize Bootstrap for unpackaged WinUI 3 app
+                    Bootstrap.Initialize(0x00010005);
+                    File.AppendAllText(logPath, $"\n[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] Bootstrap.Initialize succeeded.");
+                }
+                catch (Exception ex)
+                {
+                    File.AppendAllText(logPath, $"\n[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] Bootstrap.Initialize skipped or failed: {ex.Message}");
+                }
+
+                Application.Start((p) =>
+                {
+                    var context = new Microsoft.UI.Dispatching.DispatcherQueueSynchronizationContext(
+                        Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread());
+                    System.Threading.SynchronizationContext.SetSynchronizationContext(context);
+                    new App();
+                });
+            }
+            catch (Exception ex)
             {
-                var context = new Microsoft.UI.Dispatching.DispatcherQueueSynchronizationContext(
-                    Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread());
-                System.Threading.SynchronizationContext.SetSynchronizationContext(context);
-                new App();
-            });
+                File.AppendAllText(logPath, $"\n[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] FATAL in Program.Main: {ex}");
+            }
         }
     }
 }

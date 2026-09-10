@@ -31,6 +31,8 @@ namespace ClipboardManager.Data
             {
                 throw new InvalidOperationException($"Unsupported database version: {currentVersion}");
             }
+
+            EnsureSchema(connection);
         }
 
         private static int GetUserVersion(SqliteConnection connection)
@@ -115,7 +117,12 @@ namespace ClipboardManager.Data
                     ALTER TABLE clipboard_items_v2 RENAME TO clipboard_items;
 
                     DROP TABLE IF EXISTS clipboard_fts;
-                    CREATE VIRTUAL TABLE clipboard_fts USING fts5(item_id UNINDEXED, search_text, tokenize='unicode61');";
+                    CREATE VIRTUAL TABLE clipboard_fts USING fts5(item_id UNINDEXED, search_text, tokenize='unicode61');
+
+                    CREATE TABLE IF NOT EXISTS privacy_settings (
+                        key TEXT PRIMARY KEY,
+                        json_value TEXT NOT NULL
+                    );";
                 
                 cmd.ExecuteNonQuery();
                 tx.Commit();
@@ -125,6 +132,17 @@ namespace ClipboardManager.Data
                 tx.Rollback();
                 throw;
             }
+        }
+
+        private static void EnsureSchema(SqliteConnection connection)
+        {
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = @"
+                CREATE TABLE IF NOT EXISTS privacy_settings (
+                    key TEXT PRIMARY KEY,
+                    json_value TEXT NOT NULL
+                );";
+            cmd.ExecuteNonQuery();
         }
     }
 }

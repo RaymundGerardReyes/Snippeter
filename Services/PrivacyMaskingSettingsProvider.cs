@@ -1,3 +1,4 @@
+using System;
 using System.Threading.Tasks;
 using ClipboardManager.Data;
 using ClipboardManager.Models;
@@ -37,7 +38,17 @@ namespace ClipboardManager.Services
             _currentCache = settings ?? PrivacyMaskingSettings.Default;
             if (_repository != null)
             {
-                _ = _repository.SaveSettingsAsync(_currentCache);
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await _repository.SaveSettingsAsync(_currentCache);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Failed to persist privacy settings: {ex.Message}");
+                    }
+                });
             }
         }
     }
